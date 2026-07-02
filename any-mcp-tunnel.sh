@@ -98,7 +98,7 @@ if [ "$TRANSPORT" = "sse" ]; then
 else
   TRANSPORT="streamableHttp"
   PATH_INFO="/mcp"
-  SUPERGATEWAY_FLAGS="--outputTransport streamableHttp --streamableHttpPath /mcp"
+  SUPERGATEWAY_FLAGS="--outputTransport streamableHttp --streamableHttpPath /mcp --stateful"
 fi
 
 # 3. Configure Ports
