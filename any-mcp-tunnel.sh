@@ -91,10 +91,24 @@ fi
 echo "✅ Using command: $COMMAND"
 echo ""
 
+# Helper function to check if the server command requires SSE (stateful)
+requires_sse() {
+  local cmd_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+  if [[ "$cmd_lower" == *"browser"* || \
+        "$cmd_lower" == *"puppeteer"* || \
+        "$cmd_lower" == *"playwright"* || \
+        "$cmd_lower" == *"selenium"* || \
+        "$cmd_lower" == *"chrome"* || \
+        "$cmd_lower" == *"stateful"* ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # 2. Choose Transport Type (if not provided)
 if [ -z "$TRANSPORT" ]; then
-  if [[ "$COMMAND" == *"@browsermcp/mcp"* ]]; then
-    echo "ℹ️  Browser MCP requires a persistent connection. Automatically using SSE transport."
+  if requires_sse "$COMMAND"; then
+    echo "ℹ️  Stateful server detected. Automatically using SSE transport to maintain connection."
     TRANSPORT="sse"
   else
     echo "Select the output transport type:"
