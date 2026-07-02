@@ -3,6 +3,12 @@
 # Configuration defaults
 DEFAULT_PORT=3000
 DEFAULT_TRANSPORT="streamableHttp"
+CONFIG_FILE=".any-mcp-tunnel.cfg"
+
+# Load saved configurations if they exist
+if [ -f "$CONFIG_FILE" ]; then
+  source "$CONFIG_FILE"
+fi
 
 echo "=================================================="
 echo "🛡️  any-mcp-tunnel: Tunnel Any Local MCP Server"
@@ -149,18 +155,25 @@ elif [ "$TUNNEL_TYPE" = "named" ]; then
 
   # 2. Get Tunnel Name
   if [ -z "$TUNNEL_NAME" ]; then
-    echo -n "Enter your Cloudflare Tunnel Name [default: any-mcp-tunnel]: "
+    DEFAULT_TNAME=${SAVED_TUNNEL_NAME:-any-mcp-tunnel}
+    echo -n "Enter your Cloudflare Tunnel Name [default: $DEFAULT_TNAME]: "
     read -r TUNNEL_NAME
-    TUNNEL_NAME=${TUNNEL_NAME:-any-mcp-tunnel}
+    TUNNEL_NAME=${TUNNEL_NAME:-$DEFAULT_TNAME}
   fi
 
   # 3. Get Custom Domain
   if [ -z "$CUSTOM_DOMAIN" ]; then
-    echo -n "Enter your Custom Domain (e.g. mcp.example.com): "
-    read -r CUSTOM_DOMAIN
-    if [ -z "$CUSTOM_DOMAIN" ]; then
-      echo "❌ Error: Custom Domain is required for locally configured tunnel."
-      exit 1
+    if [ -n "$SAVED_CUSTOM_DOMAIN" ]; then
+      echo -n "Enter your Custom Domain (e.g. mcp.example.com) [default: $SAVED_CUSTOM_DOMAIN]: "
+      read -r CUSTOM_DOMAIN
+      CUSTOM_DOMAIN=${CUSTOM_DOMAIN:-$SAVED_CUSTOM_DOMAIN}
+    else
+      echo -n "Enter your Custom Domain (e.g. mcp.example.com): "
+      read -r CUSTOM_DOMAIN
+      if [ -z "$CUSTOM_DOMAIN" ]; then
+        echo "❌ Error: Custom Domain is required for locally configured tunnel."
+        exit 1
+      fi
     fi
   fi
 
@@ -188,6 +201,12 @@ elif [ "$TUNNEL_TYPE" = "named" ]; then
     CUSTOM_DOMAIN="$DETECTED_DOMAIN"
     echo "🎯 Detected FQDN: $CUSTOM_DOMAIN"
   fi
+
+  # Save configurations to cache
+  cat << EOF > "$CONFIG_FILE"
+SAVED_TUNNEL_NAME="$TUNNEL_NAME"
+SAVED_CUSTOM_DOMAIN="$CUSTOM_DOMAIN"
+EOF
 fi
 
 # 3. Configure Ports
