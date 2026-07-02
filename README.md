@@ -45,6 +45,7 @@ Local stdio MCP Server  →  supergateway  →  auth-proxy  →  Cloudflare Tunn
   - [Puppeteer](#8--puppeteer)
   - [Google Maps](#9--google-maps)
   - [Everything (Demo)](#10--everything-demo-server)
+  - [Desktop Commander](#11--desktop-commander)
 - [Tunnel Types](#-tunnel-types)
 - [Transport Types](#-transport-types)
 - [Architecture](#-architecture)
@@ -575,6 +576,43 @@ bash any-mcp-tunnel.sh \
 
 ---
 
+### 11. 🖥️ Desktop Commander
+
+> Give your AI a real terminal + full filesystem access on your machine. The most powerful MCP for agentic coding and automation tasks.
+
+| | |
+|---|---|
+| **Package** | `@wonderwhy-er/desktop-commander` |
+| **Transport** | Streamable HTTP |
+| **Auth needed** | None |
+
+> ⚠️ **High privilege.** Desktop Commander can run any terminal command, read/write any file, and kill processes. Always use a strong password and only share with trusted clients.
+
+**Capabilities:** `execute_command` (streaming terminal), `read_file`, `write_file`, `edit_block` (surgical diff edits), `search_code` (ripgrep), `list_directory`, `list_processes`, `kill_process`, `get_config`, `set_config`
+
+```bash
+./any-mcp-tunnel.sh \
+  --cmd "npx -y @wonderwhy-er/desktop-commander@latest" \
+  --transport streamableHttp \
+  --password "my-password"
+```
+
+<details>
+<summary>📄 See example script</summary>
+
+```bash
+# examples/11-desktop-commander.sh
+bash any-mcp-tunnel.sh \
+  --cmd "npx -y @wonderwhy-er/desktop-commander@latest" \
+  --port 3010 \
+  --transport streamableHttp \
+  --password "my-password"
+```
+
+</details>
+
+---
+
 ## ☁️ Tunnel Types
 
 | Type | Flag | Domain | Requirement |
@@ -668,6 +706,7 @@ bash any-mcp-tunnel.sh \
 | `examples/08-puppeteer.sh` | Puppeteer (headless Chrome) example |
 | `examples/09-google-maps.sh` | Google Maps MCP example |
 | `examples/10-everything-demo.sh` | Everything demo/test server example |
+| `examples/11-desktop-commander.sh` | Desktop Commander (terminal + filesystem) example |
 
 ---
 
