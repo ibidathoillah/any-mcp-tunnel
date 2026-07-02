@@ -132,6 +132,12 @@ is_port_in_use() {
 }
 
 # Check ports
+if is_port_in_use "$WS_PORT"; then
+  echo "⚠️  Port $WS_PORT (used by @browsermcp/mcp for the browser extension) is in use. Freeing it up..."
+  lsof -ti :"$WS_PORT" | xargs kill -9 >/dev/null 2>&1
+  sleep 1
+fi
+
 if is_port_in_use "$PORT"; then
   echo "❌ Error: Public port $PORT is already in use. Please specify a different port."
   exit 1
