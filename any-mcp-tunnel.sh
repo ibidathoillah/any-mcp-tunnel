@@ -93,16 +93,21 @@ echo ""
 
 # 2. Choose Transport Type (if not provided)
 if [ -z "$TRANSPORT" ]; then
-  echo "Select the output transport type:"
-  echo "1) Streamable HTTP on /mcp (Recommended for Cursor/Claude Desktop)"
-  echo "2) Server-Sent Events (SSE) on /sse and /message"
-  echo -n "Enter selection (1-2) [default: 1]: "
-  read -r TRANSPORT_SELECTION
-
-  if [ "$TRANSPORT_SELECTION" = "2" ]; then
+  if [[ "$COMMAND" == *"@browsermcp/mcp"* ]]; then
+    echo "ℹ️  Browser MCP requires a persistent connection. Automatically using SSE transport."
     TRANSPORT="sse"
   else
-    TRANSPORT="streamableHttp"
+    echo "Select the output transport type:"
+    echo "1) Streamable HTTP on /mcp (Recommended for Cursor/Claude Desktop)"
+    echo "2) Server-Sent Events (SSE) on /sse and /message"
+    echo -n "Enter selection (1-2) [default: 1]: "
+    read -r TRANSPORT_SELECTION
+
+    if [ "$TRANSPORT_SELECTION" = "2" ]; then
+      TRANSPORT="sse"
+    else
+      TRANSPORT="streamableHttp"
+    fi
   fi
 fi
 
