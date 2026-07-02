@@ -19,6 +19,9 @@ COMMAND=""
 PORT=""
 TRANSPORT=""
 PASSWORD=""
+TUNNEL_TYPE=""
+TUNNEL_TOKEN=""
+TUNNEL_NAME=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -26,6 +29,9 @@ while [[ "$#" -gt 0 ]]; do
     -p|--port) PORT="$2"; shift ;;
     -t|--transport) TRANSPORT="$2"; shift ;;
     -w|--password) PASSWORD="$2"; shift ;;
+    -y|--tunnel-type) TUNNEL_TYPE="$2"; shift ;;
+    -o|--tunnel-token) TUNNEL_TOKEN="$2"; shift ;;
+    -n|--tunnel-name) TUNNEL_NAME="$2"; shift ;;
     *) echo "Unknown parameter passed: $1"; exit 1 ;;
   esac
   shift
@@ -99,6 +105,42 @@ else
   TRANSPORT="streamableHttp"
   PATH_INFO="/mcp"
   SUPERGATEWAY_FLAGS="--outputTransport streamableHttp --streamableHttpPath /mcp --stateful"
+fi
+
+# Choose Cloudflare Tunnel Type (if not provided)
+if [ -z "$TUNNEL_TYPE" ]; then
+  echo "Select the Cloudflare Tunnel type:"
+  echo "1) TryCloudflare (Free, random subdomain, no account required) [default]"
+  echo "2) Cloudflare Tunnel (Token-based, managed via Zero Trust Dashboard)"
+  echo "3) Cloudflare Tunnel (Named tunnel, configured locally)"
+  echo -n "Enter selection (1-3) [default: 1]: "
+  read -r TUNNEL_SELECTION
+
+  case "$TUNNEL_SELECTION" in
+    2) TUNNEL_TYPE="token" ;;
+    3) TUNNEL_TYPE="named" ;;
+    *) TUNNEL_TYPE="quick" ;;
+  esac
+fi
+
+if [ "$TUNNEL_TYPE" = "token" ]; then
+  if [ -z "$TUNNEL_TOKEN" ]; then
+    echo -n "Enter your Cloudflare Tunnel Token: "
+    read -r TUNNEL_TOKEN
+    if [ -z "$TUNNEL_TOKEN" ]; then
+      echo "❌ Error: Tunnel Token is required for token-based tunnel."
+      exit 1
+    fi
+  fi
+elif [ "$TUNNEL_TYPE" = "named" ]; then
+  if [ -z "$TUNNEL_NAME" ]; then
+    echo -n "Enter your Cloudflare Tunnel Name (configured locally): "
+    read -r TUNNEL_NAME
+    if [ -z "$TUNNEL_NAME" ]; then
+      echo "❌ Error: Tunnel Name is required for locally configured tunnel."
+      exit 1
+    fi
+  fi
 fi
 
 # 3. Configure Ports
@@ -199,15 +241,23 @@ echo ""
 echo "🔄 Starting Cloudflare Tunnel..."
 echo "--------------------------------------------------"
 echo "📋 TO CONNECT YOUR REMOTE AI CLIENT:"
-echo "   Use the '.trycloudflare.com' URL generated below."
 
-if [ "$TRANSPORT" = "streamableHttp" ]; then
-  echo "   Set the connection type to Streamable HTTP with:"
-  echo "     - Endpoint URL: https://[YOUR-SUBDOMAIN].trycloudflare.com/mcp"
+if [ "$TUNNEL_TYPE" = "token" ] || [ "$TUNNEL_TYPE" = "named" ]; then
+  echo "   Use the Custom Domain configured for your Cloudflare Tunnel."
+  if [ "$TRANSPORT" = "streamableHttp" ]; then
+    echo "     - Endpoint URL: https://[YOUR-CUSTOM-DOMAIN]/mcp"
+  else
+    echo "     - Endpoint URL: https://[YOUR-CUSTOM-DOMAIN]/sse"
+    echo "     - Message URL:  https://[YOUR-CUSTOM-DOMAIN]/message"
+  fi
 else
-  echo "   Set the connection type to SSE (Server-Sent Events) with:"
-  echo "     - Endpoint URL: https://[YOUR-SUBDOMAIN].trycloudflare.com/sse"
-  echo "     - Message URL:  https://[YOUR-SUBDOMAIN].trycloudflare.com/message"
+  echo "   Use the '.trycloudflare.com' URL generated below."
+  if [ "$TRANSPORT" = "streamableHttp" ]; then
+    echo "     - Endpoint URL: https://[YOUR-SUBDOMAIN].trycloudflare.com/mcp"
+  else
+    echo "     - Endpoint URL: https://[YOUR-SUBDOMAIN].trycloudflare.com/sse"
+    echo "     - Message URL:  https://[YOUR-SUBDOMAIN].trycloudflare.com/message"
+  fi
 fi
 
 echo ""
@@ -215,5 +265,11 @@ echo "   ⚠️ IMPORTANT: You MUST add this custom header to your client settin
 echo "     Authorization: Bearer $PASSWORD"
 echo "--------------------------------------------------"
 
-# Start cloudflared quick tunnel
-npx -y cloudflared tunnel --protocol http2 --url "http://localhost:$PORT"
+# Start cloudflared
+if [ "$TUNNEL_TYPE" = "token" ]; then
+  npx -y cloudflared tunnel --protocol http2 run --token "$TUNNEL_TOKEN"
+elif [ "$TUNNEL_TYPE" = "named" ]; then
+  npx -y cloudflared tunnel --protocol http2 run "$TUNNEL_NAME"
+else
+  npx -y cloudflared tunnel --protocol http2 --url "http://localhost:$PORT"
+fi
