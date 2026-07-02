@@ -31,7 +31,11 @@ Simply execute the script and follow the prompts:
 ### Run Programmatically (CLI Flags)
 To bypass prompts (ideal for automated environments or starting up quickly):
 ```bash
+# Using TryCloudflare quick tunnel (default)
 ./any-mcp-tunnel.sh --cmd "npx -y @browsermcp/mcp@latest" --port 3000 --transport streamableHttp --password mysecurepassword123
+
+# Using Custom Domain with Cloudflare Tunnel Token
+./any-mcp-tunnel.sh --cmd "npx -y @browsermcp/mcp@latest" --port 3000 --tunnel-type token --tunnel-token "YOUR_CLOUDFLARE_TUNNEL_TOKEN" --password mysecurepassword123
 ```
 
 #### Available CLI Options:
@@ -39,18 +43,21 @@ To bypass prompts (ideal for automated environments or starting up quickly):
 * `-p` or `--port`: Port to listen on (default `3000`).
 * `-t` or `--transport`: Output transport type (`streamableHttp` or `sse`).
 * `-w` or `--password`: Custom password to protect the endpoint.
+* `-y` or `--tunnel-type`: Tunnel type (`quick` for TryCloudflare, `token` for Cloudflare Tunnel Token, `named` for locally configured named tunnel).
+* `-o` or `--tunnel-token`: Cloudflare Zero Trust Tunnel Token (required for `--tunnel-type token`).
+* `-n` or `--tunnel-name`: Name of locally configured tunnel (required for `--tunnel-type named`).
 
 ## Connecting Remote AI Clients
 
-Once the tunnel initializes, `cloudflared` generates a random `.trycloudflare.com` URL. Configure your AI client settings using these parameters:
+Once the tunnel initializes, configure your AI client settings using these parameters:
 
 ### Using Streamable HTTP (Default)
-- **Endpoint URL**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/mcp`
+- **Endpoint URL**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/mcp` (or `https://[YOUR-CUSTOM-DOMAIN]/mcp`)
 - **Required Header**: `Authorization: Bearer <password>`
 
 ### Using SSE
-- **SSE Endpoint**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/sse`
-- **Message Endpoint**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/message`
+- **SSE Endpoint**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/sse` (or `https://[YOUR-CUSTOM-DOMAIN]/sse`)
+- **Message Endpoint**: `https://[YOUR-SUBDOMAIN].trycloudflare.com/message` (or `https://[YOUR-CUSTOM-DOMAIN]/message`)
 - **Required Header**: `Authorization: Bearer <password>`
 
 ---
