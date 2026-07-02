@@ -211,10 +211,10 @@ elif [ "$TUNNEL_TYPE" = "named" ]; then
   echo "$ROUTE_OUTPUT"
 
   # Parse the FQDN from the output to correct the displayed URL
-  DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "CNAME [a-zA-Z0-9.-]+" | awk '{print $2}')
+  DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "CNAME [a-zA-Z0-9.-]+" | cut -d' ' -f2)
   if [ -z "$DETECTED_DOMAIN" ]; then
     # Fallback to parse anything that looks like a domain name
-    DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" | head -n 1)
+    DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "[a-zA-Z0-9.-]+\.[a-zA-Z]+" | head -n 1)
   fi
   if [ -n "$DETECTED_DOMAIN" ]; then
     CUSTOM_DOMAIN="$DETECTED_DOMAIN"
