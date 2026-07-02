@@ -22,6 +22,7 @@ PASSWORD=""
 TUNNEL_TYPE=""
 TUNNEL_TOKEN=""
 TUNNEL_NAME=""
+CUSTOM_DOMAIN=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -32,6 +33,7 @@ while [[ "$#" -gt 0 ]]; do
     -y|--tunnel-type) TUNNEL_TYPE="$2"; shift ;;
     -o|--tunnel-token) TUNNEL_TOKEN="$2"; shift ;;
     -n|--tunnel-name) TUNNEL_NAME="$2"; shift ;;
+    -d|--custom-domain) CUSTOM_DOMAIN="$2"; shift ;;
     *) echo "Unknown parameter passed: $1"; exit 1 ;;
   esac
   shift
@@ -133,14 +135,47 @@ if [ "$TUNNEL_TYPE" = "token" ]; then
     fi
   fi
 elif [ "$TUNNEL_TYPE" = "named" ]; then
-  if [ -z "$TUNNEL_NAME" ]; then
-    echo -n "Enter your Cloudflare Tunnel Name (configured locally): "
-    read -r TUNNEL_NAME
-    if [ -z "$TUNNEL_NAME" ]; then
-      echo "❌ Error: Tunnel Name is required for locally configured tunnel."
+  # 1. Check if logged in (cert.pem exists)
+  CERT_PATH="$HOME/.cloudflared/cert.pem"
+  if [ ! -f "$CERT_PATH" ]; then
+    echo "⚠️  Cloudflare credentials not found at $CERT_PATH."
+    echo "   Starting Cloudflare login..."
+    npx -y cloudflared tunnel login
+    if [ ! -f "$CERT_PATH" ]; then
+      echo "❌ Error: Cloudflare login was not completed. cert.pem is missing."
       exit 1
     fi
   fi
+
+  # 2. Get Tunnel Name
+  if [ -z "$TUNNEL_NAME" ]; then
+    echo -n "Enter your Cloudflare Tunnel Name [default: any-mcp-tunnel]: "
+    read -r TUNNEL_NAME
+    TUNNEL_NAME=${TUNNEL_NAME:-any-mcp-tunnel}
+  fi
+
+  # 3. Get Custom Domain
+  if [ -z "$CUSTOM_DOMAIN" ]; then
+    echo -n "Enter your Custom Domain (e.g. mcp.example.com): "
+    read -r CUSTOM_DOMAIN
+    if [ -z "$CUSTOM_DOMAIN" ]; then
+      echo "❌ Error: Custom Domain is required for locally configured tunnel."
+      exit 1
+    fi
+  fi
+
+  # 4. Check if tunnel already exists, if not, create it
+  echo "🔍 Checking if tunnel '$TUNNEL_NAME' exists..."
+  if ! npx -y cloudflared tunnel list 2>/dev/null | grep -q "$TUNNEL_NAME"; then
+    echo "🏗️  Tunnel '$TUNNEL_NAME' does not exist. Creating it..."
+    npx -y cloudflared tunnel create "$TUNNEL_NAME"
+  else
+    echo "✅ Tunnel '$TUNNEL_NAME' already exists."
+  fi
+
+  # 5. Auto-route DNS
+  echo "🌐 Auto-routing DNS for '$CUSTOM_DOMAIN' to tunnel '$TUNNEL_NAME'..."
+  npx -y cloudflared tunnel route dns "$TUNNEL_NAME" "$CUSTOM_DOMAIN"
 fi
 
 # 3. Configure Ports
@@ -243,12 +278,13 @@ echo "--------------------------------------------------"
 echo "📋 TO CONNECT YOUR REMOTE AI CLIENT:"
 
 if [ "$TUNNEL_TYPE" = "token" ] || [ "$TUNNEL_TYPE" = "named" ]; then
+  DISPLAY_DOMAIN=${CUSTOM_DOMAIN:-"[YOUR-CUSTOM-DOMAIN]"}
   echo "   Use the Custom Domain configured for your Cloudflare Tunnel."
   if [ "$TRANSPORT" = "streamableHttp" ]; then
-    echo "     - Endpoint URL: https://[YOUR-CUSTOM-DOMAIN]/mcp"
+    echo "     - Endpoint URL: https://$DISPLAY_DOMAIN/mcp"
   else
-    echo "     - Endpoint URL: https://[YOUR-CUSTOM-DOMAIN]/sse"
-    echo "     - Message URL:  https://[YOUR-CUSTOM-DOMAIN]/message"
+    echo "     - Endpoint URL: https://$DISPLAY_DOMAIN/sse"
+    echo "     - Message URL:  https://$DISPLAY_DOMAIN/message"
   fi
 else
   echo "   Use the '.trycloudflare.com' URL generated below."
