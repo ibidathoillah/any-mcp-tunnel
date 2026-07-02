@@ -99,7 +99,10 @@ requires_sse() {
         "$cmd_lower" == *"playwright"* || \
         "$cmd_lower" == *"selenium"* || \
         "$cmd_lower" == *"chrome"* || \
-        "$cmd_lower" == *"stateful"* ]]; then
+        "$cmd_lower" == *"stateful"* || \
+        "$cmd_lower" == *"desktop"* || \
+        "$cmd_lower" == *"commander"* || \
+        "$cmd_lower" == *"terminal"* ]]; then
     return 0
   fi
   return 1
