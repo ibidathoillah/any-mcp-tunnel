@@ -1,5 +1,5 @@
 import http from 'http';
-import { URL } from 'url';
+import { URL, URLSearchParams } from 'url';
 
 const PASSWORD = process.env.MCP_PASSWORD;
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -10,7 +10,10 @@ if (!PASSWORD) {
   process.exit(1);
 }
 
-// Inline Login Page HTML/CSS
+// In-memory store for OAuth authorization codes
+const oauthCodes = new Map();
+
+// Inline Login Page HTML/CSS (supports both standard and OAuth authorization flows)
 const LOGIN_PAGE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -195,16 +198,22 @@ const LOGIN_PAGE_HTML = `<!DOCTYPE html>
             const password = document.getElementById('password').value;
 
             try {
-                const response = await fetch('/login', {
+                // Submit to the current path to support both standard /login and OAuth /oauth/authorize
+                const response = await fetch(window.location.pathname + window.location.search, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password })
                 });
 
                 if (response.ok) {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const redirectUrl = urlParams.get('redirect') || '/';
-                    window.location.href = redirectUrl;
+                    const result = await response.json();
+                    if (result.redirect) {
+                        window.location.href = result.redirect;
+                    } else {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const redirectUrl = urlParams.get('redirect') || '/';
+                        window.location.href = redirectUrl;
+                    }
                 } else {
                     errorMsg.style.display = 'block';
                 }
@@ -217,6 +226,12 @@ const LOGIN_PAGE_HTML = `<!DOCTYPE html>
 </body>
 </html>
 `;
+
+function getBaseUrl(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
+  return `${protocol}://${host}`;
+}
 
 function isAuthorized(req) {
   // 1. Check Bearer Token
@@ -265,15 +280,154 @@ const server = http.createServer((req, res) => {
   }
 
   const parsedUrl = new URL(req.url || '', 'http://localhost');
+  const baseUrl = getBaseUrl(req);
 
-  // Handle Login GET Request
+  // 1. OAuth Metadata Discovery: Protected Resource Metadata (RFC 9728)
+  if (req.method === 'GET' && parsedUrl.pathname === '/.well-known/oauth-protected-resource') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({
+      resource: baseUrl,
+      authorization_servers: [baseUrl],
+      scopes_supported: ['read', 'write']
+    }));
+    return;
+  }
+
+  // 2. OAuth Metadata Discovery: Authorization Server Metadata (RFC 8414)
+  if (req.method === 'GET' && parsedUrl.pathname === '/.well-known/oauth-authorization-server') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      scopes_supported: ['read', 'write'],
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code'],
+      token_endpoint_auth_methods_supported: ['none'],
+      code_challenge_methods_supported: ['S256']
+    }));
+    return;
+  }
+
+  // 3. Mock MCP Server Manifest Endpoint
+  if (req.method === 'GET' && parsedUrl.pathname === '/.well-known/mcp/manifest.json') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({
+      manifestVersion: '0.1.0',
+      name: 'any-mcp-tunnel',
+      version: '1.0.0'
+    }));
+    return;
+  }
+
+  // 4. OAuth Authorize Endpoint (GET: Serve Login Form)
+  if (req.method === 'GET' && parsedUrl.pathname === '/oauth/authorize') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(LOGIN_PAGE_HTML);
+    return;
+  }
+
+  // 5. OAuth Authorize Endpoint (POST: Validate password & redirect with auth code)
+  if (req.method === 'POST' && parsedUrl.pathname === '/oauth/authorize') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        if (data.password === PASSWORD) {
+          // Parse OAuth query parameters from current request URL
+          const redirectUri = parsedUrl.searchParams.get('redirect_uri');
+          const state = parsedUrl.searchParams.get('state');
+          
+          if (!redirectUri) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing redirect_uri parameter' }));
+            return;
+          }
+
+          // Generate a mock authorization code
+          const code = 'mock_code_' + Math.random().toString(36).substring(2, 15);
+          oauthCodes.set(code, {
+            redirectUri,
+            createdAt: Date.now()
+          });
+
+          // Return JSON response instructing the web page to redirect back to the client
+          const targetUrl = new URL(redirectUri);
+          targetUrl.searchParams.set('code', code);
+          if (state) {
+            targetUrl.searchParams.set('state', state);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, redirect: targetUrl.toString() }));
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid password' }));
+        }
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid request' }));
+      }
+    });
+    return;
+  }
+
+  // 6. OAuth Token Endpoint (POST: Exchange code for password-based bearer token)
+  if (req.method === 'POST' && parsedUrl.pathname === '/oauth/token') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const params = Object.fromEntries(new URLSearchParams(body));
+        const code = params.code;
+
+        if (!code || !oauthCodes.has(code)) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid or expired authorization code' }));
+          return;
+        }
+
+        // Clean up code after single-use
+        oauthCodes.delete(code);
+
+        // Send back the PASSWORD itself as the access_token.
+        // This maps directly to our existing Bearer validation!
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({
+          access_token: PASSWORD,
+          token_type: 'Bearer',
+          expires_in: 86400
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Unable to parse request body' }));
+      }
+    });
+    return;
+  }
+
+  // 7. Handle Standard Web Portal Login GET Request
   if (req.method === 'GET' && parsedUrl.pathname === '/login') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(LOGIN_PAGE_HTML);
     return;
   }
 
-  // Handle Login POST Request
+  // 8. Handle Standard Web Portal Login POST Request
   if (req.method === 'POST' && parsedUrl.pathname === '/login') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -315,6 +469,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(401, {
       'Content-Type': 'text/plain',
       'Access-Control-Allow-Origin': '*',
+      'WWW-Authenticate': 'Bearer' // Inform client they need Bearer authentication
     });
     res.end('Unauthorized - Please authorize via the web portal or provide the correct Bearer token.');
     return;
