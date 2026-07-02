@@ -269,7 +269,7 @@ echo "--------------------------------------------------"
 if [ "$TUNNEL_TYPE" = "token" ]; then
   npx -y cloudflared tunnel --protocol http2 run --token "$TUNNEL_TOKEN"
 elif [ "$TUNNEL_TYPE" = "named" ]; then
-  npx -y cloudflared tunnel --protocol http2 run "$TUNNEL_NAME"
+  npx -y cloudflared tunnel --protocol http2 run --url "http://localhost:$PORT" "$TUNNEL_NAME"
 else
   npx -y cloudflared tunnel --protocol http2 --url "http://localhost:$PORT"
 fi
