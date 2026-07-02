@@ -306,6 +306,7 @@ const server = http.createServer((req, res) => {
       issuer: baseUrl,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
       token_endpoint: `${baseUrl}/oauth/token`,
+      registration_endpoint: `${baseUrl}/oauth/register`, // Added dynamic registration endpoint!
       scopes_supported: ['read', 'write'],
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code'],
@@ -329,14 +330,44 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 4. OAuth Authorize Endpoint (GET: Serve Login Form)
+  // 4. OAuth Dynamic Client Registration Endpoint (POST /oauth/register)
+  if (req.method === 'POST' && parsedUrl.pathname === '/oauth/register') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const metadata = JSON.parse(body);
+        const clientId = 'client_' + Math.random().toString(36).substring(2, 15);
+        const clientSecret = 'secret_' + Math.random().toString(36).substring(2, 15);
+        
+        res.writeHead(201, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          client_id_issued_at: Math.floor(Date.now() / 1000),
+          client_secret_expires_at: 0,
+          ...metadata,
+          token_endpoint_auth_method: metadata.token_endpoint_auth_method || 'none'
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'invalid_client_metadata' }));
+      }
+    });
+    return;
+  }
+
+  // 5. OAuth Authorize Endpoint (GET: Serve Login Form)
   if (req.method === 'GET' && parsedUrl.pathname === '/oauth/authorize') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(LOGIN_PAGE_HTML);
     return;
   }
 
-  // 5. OAuth Authorize Endpoint (POST: Validate password & redirect with auth code)
+  // 6. OAuth Authorize Endpoint (POST: Validate password & redirect with auth code)
   if (req.method === 'POST' && parsedUrl.pathname === '/oauth/authorize') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -382,7 +413,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 6. OAuth Token Endpoint (POST: Exchange code for password-based bearer token)
+  // 7. OAuth Token Endpoint (POST: Exchange code for password-based bearer token)
   if (req.method === 'POST' && parsedUrl.pathname === '/oauth/token') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -401,7 +432,6 @@ const server = http.createServer((req, res) => {
         oauthCodes.delete(code);
 
         // Send back the PASSWORD itself as the access_token.
-        // This maps directly to our existing Bearer validation!
         res.writeHead(200, {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-store',
@@ -420,14 +450,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 7. Handle Standard Web Portal Login GET Request
+  // 8. Handle Standard Web Portal Login GET Request
   if (req.method === 'GET' && parsedUrl.pathname === '/login') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(LOGIN_PAGE_HTML);
     return;
   }
 
-  // 8. Handle Standard Web Portal Login POST Request
+  // 9. Handle Standard Web Portal Login POST Request
   if (req.method === 'POST' && parsedUrl.pathname === '/login') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
