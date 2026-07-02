@@ -175,7 +175,19 @@ elif [ "$TUNNEL_TYPE" = "named" ]; then
 
   # 5. Auto-route DNS
   echo "🌐 Auto-routing DNS for '$CUSTOM_DOMAIN' to tunnel '$TUNNEL_NAME'..."
-  npx -y cloudflared tunnel route dns "$TUNNEL_NAME" "$CUSTOM_DOMAIN"
+  ROUTE_OUTPUT=$(npx -y cloudflared tunnel route dns "$TUNNEL_NAME" "$CUSTOM_DOMAIN" 2>&1)
+  echo "$ROUTE_OUTPUT"
+
+  # Parse the FQDN from the output to correct the displayed URL
+  DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "CNAME [a-zA-Z0-9.-]+" | awk '{print $2}')
+  if [ -z "$DETECTED_DOMAIN" ]; then
+    # Fallback to parse anything that looks like a domain name
+    DETECTED_DOMAIN=$(echo "$ROUTE_OUTPUT" | grep -ioE "[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" | head -n 1)
+  fi
+  if [ -n "$DETECTED_DOMAIN" ]; then
+    CUSTOM_DOMAIN="$DETECTED_DOMAIN"
+    echo "🎯 Detected FQDN: $CUSTOM_DOMAIN"
+  fi
 fi
 
 # 3. Configure Ports
