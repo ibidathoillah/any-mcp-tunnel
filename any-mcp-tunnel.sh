@@ -270,29 +270,43 @@ if is_port_in_use "$PORT"; then
   exit 1
 fi
 
-if is_port_in_use "$INTERNAL_PORT"; then
-  echo "❌ Error: Internal port $INTERNAL_PORT is already in use. Please free up this port."
-  exit 1
+GATEWAY_PID=""
+if [ "$TRANSPORT" = "sse" ]; then
+  # Start auth proxy on public port (acting as custom SSE gateway)
+  echo "🛡️  Starting auth proxy in Custom SSE Gateway mode on port $PORT..."
+  export MCP_PASSWORD="$PASSWORD"
+  export PORT="$PORT"
+  export COMMAND="$COMMAND"
+  unset TARGET_PORT
+  node auth-proxy.js > auth-proxy.log 2>&1 &
+  PROXY_PID=$!
+else
+  # Check internal port
+  if is_port_in_use "$INTERNAL_PORT"; then
+    echo "❌ Error: Internal port $INTERNAL_PORT is already in use. Please free up this port."
+    exit 1
+  fi
+
+  # Start supergateway on internal port
+  echo "🔄 Starting supergateway with transport '$TRANSPORT' on port $INTERNAL_PORT..."
+  npx -y supergateway --port "$INTERNAL_PORT" $SUPERGATEWAY_FLAGS --stdio "$COMMAND" > supergateway.log 2>&1 &
+  GATEWAY_PID=$!
+
+  # Start auth proxy on public port (acting as pure proxy to supergateway)
+  echo "🛡️  Starting auth proxy on port $PORT..."
+  export MCP_PASSWORD="$PASSWORD"
+  export PORT="$PORT"
+  export TARGET_PORT="$INTERNAL_PORT"
+  export COMMAND="$COMMAND"
+  node auth-proxy.js > auth-proxy.log 2>&1 &
+  PROXY_PID=$!
 fi
-
-# Start supergateway on internal port
-echo "🔄 Starting supergateway with transport '$TRANSPORT' on port $INTERNAL_PORT..."
-npx -y supergateway --port "$INTERNAL_PORT" $SUPERGATEWAY_FLAGS --stdio "$COMMAND" > supergateway.log 2>&1 &
-GATEWAY_PID=$!
-
-# Start auth proxy on public port
-echo "🛡️  Starting auth proxy on port $PORT..."
-export MCP_PASSWORD="$PASSWORD"
-export PORT="$PORT"
-export TARGET_PORT="$INTERNAL_PORT"
-node auth-proxy.js > auth-proxy.log 2>&1 &
-PROXY_PID=$!
 
 # Ensure cleanup of background processes on exit
 cleanup() {
   echo ""
   echo "🛑 Stopping services..."
-  if kill -0 "$GATEWAY_PID" 2>/dev/null; then
+  if [ -n "$GATEWAY_PID" ] && kill -0 "$GATEWAY_PID" 2>/dev/null; then
     kill "$GATEWAY_PID"
     wait "$GATEWAY_PID" 2>/dev/null
   fi
@@ -309,7 +323,7 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Wait a short moment to ensure services started successfully
 sleep 2
-if ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
+if [ -n "$GATEWAY_PID" ] && ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
   echo "❌ Error: Failed to start supergateway. Check logs below:"
   cat supergateway.log
   exit 1
