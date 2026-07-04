@@ -48,15 +48,19 @@ done
 # 1. Choose MCP Server Command (if not provided)
 if [ -z "$COMMAND" ]; then
   echo "Select the MCP server you want to run:"
-  echo "1) Browser MCP (npx -y @browsermcp/mcp@latest)"
-  echo "2) Filesystem MCP (npx -y @modelcontextprotocol/server-filesystem)"
-  echo "3) Postgres MCP (npx -y @modelcontextprotocol/server-postgres)"
-  echo "4) Custom stdio command"
-  echo -n "Enter selection (1-4) [default: 1]: "
+  echo "1) Desktop Commander (npx -y @wonderwhy-er/desktop-commander@latest) [Recommended]"
+  echo "2) Browser MCP (npx -y @browsermcp/mcp@latest)"
+  echo "3) Filesystem MCP (npx -y @modelcontextprotocol/server-filesystem)"
+  echo "4) Postgres MCP (npx -y @modelcontextprotocol/server-postgres)"
+  echo "5) Custom stdio command"
+  echo -n "Enter selection (1-5) [default: 1]: "
   read -r SELECTION
 
   case "$SELECTION" in
     2)
+      COMMAND="npx -y @browsermcp/mcp@latest"
+      ;;
+    3)
       echo -n "Enter the absolute directory path to expose: "
       read -r DIR_PATH
       if [ -z "$DIR_PATH" ]; then
@@ -65,7 +69,7 @@ if [ -z "$COMMAND" ]; then
       fi
       COMMAND="npx -y @modelcontextprotocol/server-filesystem \"$DIR_PATH\""
       ;;
-    3)
+    4)
       echo -n "Enter PostgreSQL connection string (postgresql://...): "
       read -r CONN_STR
       if [ -z "$CONN_STR" ]; then
@@ -74,7 +78,7 @@ if [ -z "$COMMAND" ]; then
       fi
       COMMAND="npx -y @modelcontextprotocol/server-postgres \"$CONN_STR\""
       ;;
-    4)
+    5)
       echo -n "Enter custom command (e.g. 'node my-server.js'): "
       read -r COMMAND
       if [ -z "$COMMAND" ]; then
@@ -83,7 +87,7 @@ if [ -z "$COMMAND" ]; then
       fi
       ;;
     *)
-      COMMAND="npx -y @browsermcp/mcp@latest"
+      COMMAND="npx -y @wonderwhy-er/desktop-commander@latest"
       ;;
   esac
 fi

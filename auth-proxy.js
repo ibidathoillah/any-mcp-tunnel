@@ -6,7 +6,7 @@ import readline from 'readline';
 const PASSWORD = process.env.MCP_PASSWORD;
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const TARGET_PORT = process.env.TARGET_PORT ? parseInt(process.env.TARGET_PORT, 10) : null;
-const COMMAND = process.env.COMMAND || 'npx -y @browsermcp/mcp@latest';
+const COMMAND = process.env.COMMAND || 'npx -y @wonderwhy-er/desktop-commander@latest';
 
 if (!PASSWORD) {
   console.error("Error: MCP_PASSWORD environment variable is required");

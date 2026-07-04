@@ -96,7 +96,7 @@ The script will print the public HTTPS URL and the Authorization header to use.
 
 | Flag | Short | Description | Default |
 |---|---|---|---|
-| `--cmd` | `-c` | stdio command to run (e.g. `npx -y @browsermcp/mcp@latest`) | *(interactive)* |
+| `--cmd` | `-c` | stdio command to run (e.g. `npx -y @wonderwhy-er/desktop-commander@latest`) | *(interactive)* |
 | `--port` | `-p` | Public port for the auth proxy | `3000` |
 | `--transport` | `-t` | `streamableHttp` or `sse` | `streamableHttp` |
 | `--password` | `-w` | Password protecting the tunnel | *(auto-generated)* |
