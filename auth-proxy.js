@@ -1,17 +1,62 @@
 import http from 'http';
 import { URL, URLSearchParams } from 'url';
+import { spawn } from 'child_process';
+import readline from 'readline';
 
 const PASSWORD = process.env.MCP_PASSWORD;
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const TARGET_PORT = parseInt(process.env.TARGET_PORT || '3001', 10);
+const TARGET_PORT = process.env.TARGET_PORT ? parseInt(process.env.TARGET_PORT, 10) : null;
+const COMMAND = process.env.COMMAND || 'npx -y @browsermcp/mcp@latest';
 
 if (!PASSWORD) {
   console.error("Error: MCP_PASSWORD environment variable is required");
   process.exit(1);
 }
 
-// In-memory store for OAuth authorization codes
+let child = null;
 const oauthCodes = new Map();
+const sseClients = new Set();
+
+// If no TARGET_PORT is provided, act as a self-contained SSE gateway and spawn the process directly
+if (!TARGET_PORT) {
+  console.log(`[Proxy] Spawning MCP server command: "${COMMAND}"`);
+  child = spawn(COMMAND, {
+    shell: true,
+    stdio: ['pipe', 'pipe', 'inherit']
+  });
+
+  child.on('error', (err) => {
+    console.error(`[Proxy] Failed to start MCP child process: ${err.message}`);
+  });
+
+  child.on('exit', (code, signal) => {
+    console.log(`[Proxy] MCP child process exited with code ${code}, signal ${signal}`);
+    process.exit(code || 0);
+  });
+
+  process.on('SIGINT', () => {
+    if (child) child.kill('SIGINT');
+    process.exit();
+  });
+  process.on('SIGTERM', () => {
+    if (child) child.kill('SIGTERM');
+    process.exit();
+  });
+
+  // Read line-by-line from the child process's stdout
+  const rl = readline.createInterface({ input: child.stdout });
+  rl.on('line', (line) => {
+    console.log(`[Child Stdout] -> ${line}`);
+    // Broadcast stdout line to all connected SSE clients
+    for (const client of sseClients) {
+      try {
+        client.res.write(`event: message\ndata: ${line}\n\n`);
+      } catch (err) {
+        console.error(`[Proxy] Error writing to client ${client.sessionId}: ${err.message}`);
+      }
+    }
+  });
+}
 
 // Inline Login Page HTML/CSS (supports both standard and OAuth authorization flows)
 const LOGIN_PAGE_HTML = `<!DOCTYPE html>
@@ -198,7 +243,6 @@ const LOGIN_PAGE_HTML = `<!DOCTYPE html>
             const password = document.getElementById('password').value;
 
             try {
-                // Submit to the current path to support both standard /login and OAuth /oauth/authorize
                 const response = await fetch(window.location.pathname + window.location.search, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -521,7 +565,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Check Authorization for actual MCP/protected routes (e.g. /mcp, /sse, /message)
+  // Check Authorization for protected routes (/sse, /message)
   if (!isAuthorized(req)) {
     console.log(`[Proxy] Unauthorized access attempt: ${req.method} ${req.url}`);
     
@@ -534,7 +578,6 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    // For APIs (like SSE endpoints / message posts) return 401 directly
     res.writeHead(401, {
       'Content-Type': 'text/plain',
       'Access-Control-Allow-Origin': '*',
@@ -544,40 +587,108 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Forward the request to the local supergateway
-  const options = {
-    hostname: '127.0.0.1',
-    port: TARGET_PORT,
-    path: req.url,
-    method: req.method,
-    headers: {
-      ...req.headers,
-      host: `127.0.0.1:${TARGET_PORT}`
-    }
-  };
+  // === DUAL TRANSPORT ROUTING ===
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    // Add CORS headers to the proxied response to ensure AI clients can connect
-    const headers = {
-      ...proxyRes.headers,
-      'Access-Control-Allow-Origin': '*',
+  // Mode A: Pure HTTP Proxy (Streamable HTTP mode)
+  if (TARGET_PORT) {
+    const options = {
+      hostname: '127.0.0.1',
+      port: TARGET_PORT,
+      path: req.url,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: `127.0.0.1:${TARGET_PORT}`
+      }
     };
-    
-    res.writeHead(proxyRes.statusCode || 200, headers);
-    proxyRes.pipe(res);
-  });
 
-  req.pipe(proxyReq);
+    const proxyReq = http.request(options, (proxyRes) => {
+      const headers = {
+        ...proxyRes.headers,
+        'Access-Control-Allow-Origin': '*',
+      };
+      res.writeHead(proxyRes.statusCode || 200, headers);
+      proxyRes.pipe(res);
+    });
 
-  proxyReq.on('error', (err) => {
-    console.error(`[Proxy] Target request error: ${err.message}`);
-    if (!res.headersSent) {
-      res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
-      res.end(`Bad Gateway: Failed to connect to the local MCP server.`);
+    req.pipe(proxyReq);
+
+    proxyReq.on('error', (err) => {
+      console.error(`[Proxy] Target request error: ${err.message}`);
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+        res.end(`Bad Gateway: Failed to connect to the local MCP server.`);
+      }
+    });
+    return;
+  }
+
+  // Mode B: Custom SSE Gateway (SSE mode)
+  
+  // 1. SSE Connection Handler
+  if (req.method === 'GET' && pathname === '/sse') {
+    console.log(`[Proxy] New SSE client connection request`);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    const sessionId = 'session_' + Math.random().toString(36).substring(2, 15);
+    const client = { res, sessionId };
+    sseClients.add(client);
+
+    console.log(`[Proxy] SSE Client registered: ${sessionId}`);
+
+    // Immediately send the endpoint mapping event
+    res.write(`event: endpoint\ndata: /message?sessionId=${sessionId}\n\n`);
+
+    req.on('close', () => {
+      sseClients.delete(client);
+      console.log(`[Proxy] SSE Client disconnected: ${sessionId}`);
+    });
+    return;
+  }
+
+  // 2. Client-to-Server Message POST Handler
+  if (req.method === 'POST' && pathname === '/message') {
+    const sessionId = parsedUrl.searchParams.get('sessionId');
+    if (!sessionId) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Missing sessionId parameter' }));
+      return;
     }
-  });
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      console.log(`[Proxy] Received message for session ${sessionId}: ${body}`);
+      try {
+        // Forward message to child process stdin
+        if (child) {
+          child.stdin.write(body + '\n');
+        }
+        
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        console.error(`[Proxy] Failed to write to child stdin: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
+    });
+    return;
+  }
+
+  // Fallback for any unhandled routes
+  res.writeHead(404, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+  res.end('Not Found');
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Proxy] Auth proxy listening on port ${PORT}, forwarding to internal port ${TARGET_PORT}`);
+  console.log(`[Proxy] Auth proxy listening on port ${PORT} (Mode: ${TARGET_PORT ? 'HTTP Proxy to ' + TARGET_PORT : 'Custom SSE Gateway'})`);
 });
